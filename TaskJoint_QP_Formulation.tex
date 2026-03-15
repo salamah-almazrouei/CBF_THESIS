@@ -1,0 +1,442 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,mathtools,bm}
+\usepackage{physics}
+\usepackage{siunitx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{float}
+
+\title{Complete Mathematical Formulation for Task-Space Tracking\\with Joint-Space Feasibility and CBF Safety}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Problem Statement and Why It Is Nontrivial}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+We are given an end-effector trajectory from a CSV file and want a 7-DOF robot arm to execute it.
+The trajectory is specified in task space:
+\[
+\mathbf{p}_r(t)\in\mathbb{R}^3,\qquad R_r(t)\in SO(3)\ \text{(if orientation is available)}.
+\]
+However, the robot is actuated in joint space:
+\[
+\mathbf{q}(t)\in\mathbb{R}^7.
+\]
+Hence, each control step must transform a Cartesian pose-tracking objective into feasible joint velocities while satisfying hard physical limits and safety constraints.
+
+The key difficulty is that these goals can conflict:
+\begin{enumerate}[label=\arabic*.]
+\item Follow the task-space path accurately.
+\item Stay inside a safety region in task space (CBF constraint).
+\item Respect joint position, velocity, and acceleration limits.
+\item Use configuration redundancy (7 DOF) intelligently via secondary objectives.
+\end{enumerate}
+
+The final controller must produce commands that are both \emph{geometrically correct} (task-space tracking) and \emph{physically executable} (joint-space feasibility).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Kinematics and Variables}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Joint-space variables}
+\[
+\mathbf{q}\in\mathbb{R}^7,\qquad
+\dot{\mathbf{q}}\in\mathbb{R}^7,\qquad
+\ddot{\mathbf{q}}\in\mathbb{R}^7.
+\]
+
+\subsection{End-effector pose}
+\[
+\mathbf{p}=f_p(\mathbf{q})\in\mathbb{R}^3,\qquad
+R=f_R(\mathbf{q})\in SO(3).
+\]
+
+\subsection{Differential kinematics}
+\[
+\dot{\mathbf{p}} = J_p(\mathbf{q})\,\dot{\mathbf{q}},\qquad
+\bm{\omega}=J_\omega(\mathbf{q})\,\dot{\mathbf{q}},
+\]
+with
+\[
+J_p\in\mathbb{R}^{3\times 7},\quad
+J_\omega\in\mathbb{R}^{3\times 7}.
+\]
+
+If orientation is tracked, define:
+\[
+J_6=\begin{bmatrix}J_p\\J_\omega\end{bmatrix}\in\mathbb{R}^{6\times 7},\qquad
+\mathbf{v}_6=\begin{bmatrix}\dot{\mathbf{p}}\\\bm{\omega}\end{bmatrix}.
+\]
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Reference Construction from CSV}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+At sample time \(t_k\), position reference is \(\mathbf{p}_r(t_k)\). If orientation columns exist, we also have \(R_r(t_k)\).
+
+\subsection{Feedforward translational velocity}
+\[
+\dot{\mathbf{p}}_r(t_k)\approx
+\frac{\mathbf{p}_r(t_{k+1})-\mathbf{p}_r(t_k)}{t_{k+1}-t_k}.
+\]
+
+\subsection{Feedforward angular velocity}
+\[
+\bm{\omega}_r(t_k)\approx
+\frac{\log\!\left(R_r(t_k)^\top R_r(t_{k+1})\right)^\vee}{t_{k+1}-t_k}.
+\]
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Tracking Errors and Desired Cartesian Motion}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Position error}
+\[
+\mathbf{e}_p=\mathbf{p}_r-\mathbf{p}.
+\]
+
+\subsection{Orientation error}
+Define:
+\[
+R_e=R_rR^\top.
+\]
+Use the standard vector form:
+\[
+\mathbf{e}_\omega
+=
+\frac12
+\begin{bmatrix}
+R_{e32}-R_{e23}\\
+R_{e13}-R_{e31}\\
+R_{e21}-R_{e12}
+\end{bmatrix}.
+\]
+
+\subsection{Desired Cartesian command}
+\[
+\mathbf{v}_{d,p}=\dot{\mathbf{p}}_r+K_p\mathbf{e}_p.
+\]
+If orientation is available:
+\[
+\mathbf{v}_{d,\omega}=\bm{\omega}_r+K_o\mathbf{e}_\omega,
+\qquad
+\mathbf{v}_{6,d}=
+\begin{bmatrix}
+\mathbf{v}_{d,p}\\
+\mathbf{v}_{d,\omega}
+\end{bmatrix}.
+\]
+If orientation is not available, only \((J_p,\mathbf{v}_{d,p})\) is used.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Task-Space Safety: Position CBF}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Define a spherical safe set with center \(\mathbf{c}\) and radius \(X_m\):
+\[
+h_p(\mathbf{p})=X_m^2-\norm{\mathbf{p}-\mathbf{c}}^2.
+\]
+Safe region:
+\[
+\mathcal{C}=\{\mathbf{p}: h_p(\mathbf{p})\ge 0\}.
+\]
+
+Apply CBF condition:
+\[
+\dot{h}_p+\gamma_p h_p\ge 0,\qquad \gamma_p>0.
+\]
+Since
+\[
+\dot{h}_p=-2(\mathbf{p}-\mathbf{c})^\top \dot{\mathbf{p}}
+       =-2(\mathbf{p}-\mathbf{c})^\top J_p\dot{\mathbf{q}},
+\]
+we get a linear inequality in \(\dot{\mathbf{q}}\):
+\[
+2(\mathbf{p}-\mathbf{c})^\top J_p\dot{\mathbf{q}}
+\le
+\gamma_p\left(X_m^2-\norm{\mathbf{p}-\mathbf{c}}^2\right).
+\]
+
+This is enforced as a hard QP constraint at each step.
+
+\subsection{Velocity CBF Condition}
+To enforce a dynamic speed safety layer, define
+\[
+h_v(\dot{\mathbf{p}})=V_m^2-\norm{\dot{\mathbf{p}}}^2.
+\]
+The safe set is
+\[
+\mathcal{C}_v=\{\dot{\mathbf{p}}: h_v\ge 0\}.
+\]
+Apply the CBF condition
+\[
+\dot{h}_v+\gamma_v h_v\ge 0,\qquad \gamma_v>0.
+\]
+Since
+\[
+\dot{h}_v=-2\dot{\mathbf{p}}^\top\ddot{\mathbf{p}},
+\]
+we get
+\[
+-2\dot{\mathbf{p}}^\top\ddot{\mathbf{p}}+\gamma_v\left(V_m^2-\norm{\dot{\mathbf{p}}}^2\right)\ge 0.
+\]
+
+For implementation with decision variable \(\dot{\mathbf{q}}_k\), use
+\[
+\dot{\mathbf{p}}_k \approx J_p\dot{\mathbf{q}}_{k-1},\qquad
+\ddot{\mathbf{p}}_k \approx \frac{J_p\dot{\mathbf{q}}_k-\dot{\mathbf{p}}_k}{\Delta t_k}.
+\]
+Substitute into the CBF inequality:
+\[
+\dot{\mathbf{p}}_k^\top J_p\dot{\mathbf{q}}_k
+\le
+\norm{\dot{\mathbf{p}}_k}^2
+\frac{\gamma_v\Delta t_k}{2}\left(V_m^2-\norm{\dot{\mathbf{p}}_k}^2\right).
+\]
+This is linear in \(\dot{\mathbf{q}}_k\) and can be directly added to \(A_{ineq}\dot{\mathbf{q}}\le \mathbf{b}_{ineq}\).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Secondary Joint-Space Objective}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+To exploit redundancy, define a preferred joint velocity:
+\[
+\dot{\mathbf{q}}_{sec}
+=
+k_h(\mathbf{q}_{home}-\mathbf{q})
+-k_\ell \nabla V_{lim}(\mathbf{q}).
+\]
+
+Typical limit-avoidance potential:
+\[
+V_{lim}(\mathbf{q})=
+\sum_{i=1}^7
+\left(
+-\log(q_i-q_i^{\min})-\log(q_i^{\max}-q_i)
+\right),
+\]
+whose gradient grows near limits and pushes joints inward.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Updated Optimization Problem (Per Time Step)}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+At each \(k\), solve for \(\dot{\mathbf{q}}_k\):
+\[
+\min_{\dot{\mathbf{q}}}
+\underbrace{\norm{J\dot{\mathbf{q}}-\mathbf{v}_d}_2^2}_{\text{task tracking}}
++\underbrace{\lambda^2\norm{\dot{\mathbf{q}}}_2^2}_{\text{damping}}
++\underbrace{w_{smooth}\norm{\dot{\mathbf{q}}-\dot{\mathbf{q}}_{k-1}}_2^2}_{\text{temporal smoothness}}
++\underbrace{w_{null}\norm{\dot{\mathbf{q}}-\dot{\mathbf{q}}_{sec}}_2^2}_{\text{secondary behavior}}.
+\]
+
+Here:
+\[
+J=
+\begin{cases}
+J_p & \text{position-only tracking}\\
+J_6 & \text{position + orientation tracking}
+\end{cases},
+\qquad
+\mathbf{v}_d=
+\begin{cases}
+\mathbf{v}_{d,p}\\
+\mathbf{v}_{6,d}
+\end{cases}.
+\]
+
+\subsection{Equivalent QP matrix form}
+\[
+\min_{\dot{\mathbf{q}}}\;
+\frac12\dot{\mathbf{q}}^\top H\dot{\mathbf{q}}-g^\top\dot{\mathbf{q}},
+\]
+with
+\[
+H=J^\top J + \left(\lambda^2+w_{smooth}+w_{null}\right)I,
+\]
+\[
+g=J^\top\mathbf{v}_d + w_{smooth}\dot{\mathbf{q}}_{k-1} + w_{null}\dot{\mathbf{q}}_{sec}.
+\]
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Hard Constraints in the QP}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Joint position feasibility (next-step form)}
+With margin \(\delta\):
+\[
+\mathbf{q}_{min}+\delta \le \mathbf{q}_k+\dot{\mathbf{q}}\Delta t_k \le \mathbf{q}_{max}-\delta,
+\]
+which gives:
+\[
+\frac{\mathbf{q}_{min}+\delta-\mathbf{q}_k}{\Delta t_k}
+\le \dot{\mathbf{q}} \le
+\frac{\mathbf{q}_{max}-\delta-\mathbf{q}_k}{\Delta t_k}.
+\]
+
+\subsection{Joint velocity limits}
+\[
+-\dot{\mathbf{q}}_{max}\le \dot{\mathbf{q}}\le \dot{\mathbf{q}}_{max}.
+\]
+
+\subsection{Joint acceleration limits}
+\[
+\dot{\mathbf{q}}_{k-1}-\ddot{\mathbf{q}}_{max}\Delta t_k
+\le
+\dot{\mathbf{q}}
+\le
+\dot{\mathbf{q}}_{k-1}+\ddot{\mathbf{q}}_{max}\Delta t_k.
+\]
+
+All three are merged into box bounds:
+\[
+\mathbf{l}_b \le \dot{\mathbf{q}} \le \mathbf{u}_b.
+\]
+
+\subsection{Task-space CBF inequality}
+\[
+2(\mathbf{p}-\mathbf{c})^\top J_p\dot{\mathbf{q}}
+\le
+\gamma_p\left(X_m^2-\norm{\mathbf{p}-\mathbf{c}}^2\right).
+\]
+
+\subsection{Velocity CBF inequality}
+Let \(\dot{\mathbf{p}}_k=J_p\dot{\mathbf{q}}_{k-1}\). Then impose
+\[
+\dot{\mathbf{p}}_k^\top J_p\dot{\mathbf{q}}_k
+\le
+\norm{\dot{\mathbf{p}}_k}^2
+\frac{\gamma_v\Delta t_k}{2}\left(V_m^2-\norm{\dot{\mathbf{p}}_k}^2\right).
+\]
+This provides a barrier-style speed safety condition in addition to the norm bound.
+
+\subsection{Task-space speed bound (conservative linearization)}
+The Euclidean bound \(\norm{\dot{\mathbf{p}}}_2\le V_m\) is conservatively enforced via:
+\[
+\left|[J_p\dot{\mathbf{q}}]_j\right| \le \frac{V_m}{\sqrt{3}},\quad j=1,2,3.
+\]
+
+\subsection{Task-space acceleration bound (conservative discrete form)}
+Using \(\dot{\mathbf{p}}\approx J_p\dot{\mathbf{q}}\):
+\[
+\left|
+\frac{[J_p\dot{\mathbf{q}}]_j - [J_p\dot{\mathbf{q}}_{k-1}]_j}{\Delta t_k}
+\right|
+\le
+\frac{A_m}{\sqrt{3}},\quad j=1,2,3.
+\]
+
+Thus all task constraints are linear inequalities:
+\[
+A_{ineq}\dot{\mathbf{q}}\le \mathbf{b}_{ineq}.
+\]
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Final QP Solved in Implementation}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+At each step:
+\[
+\begin{aligned}
+\min_{\dot{\mathbf{q}}}\quad&
+\frac12\dot{\mathbf{q}}^\top H\dot{\mathbf{q}}-g^\top\dot{\mathbf{q}}\\
+\text{s.t.}\quad&
+\mathbf{l}_b\le \dot{\mathbf{q}}\le \mathbf{u}_b,\\
+&A_{ineq}\dot{\mathbf{q}}\le \mathbf{b}_{ineq}.
+\end{aligned}
+\]
+
+This is solved using OSQP when available; otherwise a projected-QP fallback is used.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Discrete-Time State Update}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+After obtaining \(\dot{\mathbf{q}}_k\):
+\[
+\mathbf{q}_{k+1}=\mathbf{q}_k+\dot{\mathbf{q}}_k\Delta t_k.
+\]
+Numerical safeguard:
+\[
+\mathbf{q}_{k+1}\leftarrow
+\operatorname{clip}(\mathbf{q}_{k+1},\mathbf{q}_{min},\mathbf{q}_{max}).
+\]
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Validation and Logged Quantities}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Typical diagnostics:
+\[
+e_p(k)=\norm{\mathbf{p}_r(k)-\mathbf{p}(k)},
+\qquad
+e_o(k)=\norm{\mathbf{e}_\omega(k)}\ \text{(if orientation tracked)}.
+\]
+
+CBF residual:
+\[
+r_{cbf}(k)=\dot{h}_p(k)+\gamma_p h_p(k),
+\]
+with \(\dot{h}_p\) computed from executed task velocity.
+
+Task bounds:
+\[
+\norm{\dot{\mathbf{p}}(k)}\le V_m,\qquad
+\norm{\ddot{\mathbf{p}}(k)}\le A_m.
+\]
+
+Joint bounds:
+\[
+\mathbf{q}_{min}\le \mathbf{q}(k)\le \mathbf{q}_{max},\quad
+\norm{\dot{\mathbf{q}}(k)}_\infty\le \dot{\mathbf{q}}_{max},\quad
+\norm{\ddot{\mathbf{q}}(k)}_\infty\le \ddot{\mathbf{q}}_{max}.
+\]
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Algorithm (Implementation-Level)}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+At each sample \(k\):
+\begin{enumerate}[label=\arabic*.]
+\item Compute current pose, Jacobians, and errors.
+\item Build \(\mathbf{v}_d\) (position only or full 6D with orientation).
+\item Build \(H,g\) from tracking + smoothness + null preference.
+\item Build hard bounds \(\mathbf{l}_b,\mathbf{u}_b\) from joint position/velocity/acceleration constraints.
+\item Build linear inequalities for CBF, task velocity, and task acceleration.
+\item Solve constrained QP for \(\dot{\mathbf{q}}_k\).
+\item Integrate to \(\mathbf{q}_{k+1}\), clip numerically, log diagnostics.
+\end{enumerate}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Interpretation}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+This formulation provides a clear priority structure:
+\begin{itemize}
+\item The objective tracks the desired Cartesian motion.
+\item Hard constraints guarantee safety and feasibility.
+\item Secondary terms shape posture without violating primary constraints.
+\end{itemize}
+
+In short: it is a mathematically consistent way to stay close to the desired task-space trajectory while guaranteeing joint-space executability and task-space safety.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{How to Compile}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Example:
+\begin{verbatim}
+pdflatex TaskJoint_QP_Formulation.tex
+\end{verbatim}
+Run twice if needed for table of contents.
+
+\end{document}
